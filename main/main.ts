@@ -30,19 +30,70 @@ function createWindow(): void {
       webSecurity: true,
       allowRunningInsecureContent: false,
     },
-    icon: path.join(__dirname, '../../build/icon.png'),
+    icon: app.isPackaged 
+      ? path.join(app.getAppPath(), 'build', 'icon.png')
+      : path.join(__dirname, '../../build/icon.png'),
     show: false, // Ne pas afficher avant que le contenu soit chargé
   });
 
   // Charger l'interface native Electron
-  // Depuis dist/main/, remonter de deux niveaux pour atteindre electron/renderer/
-  const rendererPath = path.join(__dirname, '../../renderer/index.html');
-  mainWindow.loadFile(rendererPath);
+  // En production, utiliser app.getAppPath() pour obtenir le chemin correct
+  // En développement, __dirname pointe vers dist/main/
+  let rendererPath: string;
+  if (app.isPackaged) {
+    // En production packagée, les fichiers sont dans resources/app/
+    rendererPath = path.join(app.getAppPath(), 'renderer', 'index.html');
+  } else {
+    // En développement, depuis dist/main/ remonter de deux niveaux
+    rendererPath = path.join(__dirname, '../../renderer/index.html');
+  }
   
-  // Ouvrir DevTools en mode développement
+  console.log('Chargement du renderer depuis:', rendererPath);
+  
+  // Vérifier que le fichier existe
+  const fs = require('fs');
+  if (!fs.existsSync(rendererPath)) {
+    console.error('❌ Fichier renderer introuvable:', rendererPath);
+    console.error('   __dirname:', __dirname);
+    console.error('   app.getAppPath():', app.getAppPath());
+    console.error('   app.isPackaged:', app.isPackaged);
+    
+    // Ouvrir DevTools pour voir l'erreur
+    mainWindow.webContents.openDevTools();
+    
+    // Afficher une page d'erreur
+    mainWindow.loadURL(`data:text/html;charset=utf-8,
+      <html>
+        <head><title>Erreur - Fichier introuvable</title></head>
+        <body style="font-family: Arial; padding: 20px;">
+          <h1>❌ Erreur de chargement</h1>
+          <p>Le fichier renderer n'a pas pu être trouvé.</p>
+          <p><strong>Chemin recherché:</strong> ${rendererPath}</p>
+          <p><strong>__dirname:</strong> ${__dirname}</p>
+          <p><strong>app.getAppPath():</strong> ${app.getAppPath()}</p>
+          <p><strong>app.isPackaged:</strong> ${app.isPackaged}</p>
+          <p>Vérifiez la console pour plus de détails.</p>
+        </body>
+      </html>
+    `);
+  } else {
+    console.log('✅ Fichier renderer trouvé');
+    mainWindow.loadFile(rendererPath);
+  }
+  
+  // Ouvrir DevTools en mode développement ou si erreur
   if (isDev) {
     mainWindow.webContents.openDevTools();
   }
+  
+  // Gestionnaire d'erreur de chargement
+  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+    console.error('❌ Erreur de chargement:', errorCode, errorDescription);
+    console.error('   URL:', validatedURL);
+    if (mainWindow) {
+      mainWindow.webContents.openDevTools();
+    }
+  });
 
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show();
@@ -93,8 +144,13 @@ async function initializeApp(): Promise<void> {
 
     // 5. Démarrer le service de découverte réseau (si multi-utilisateurs)
     // La détection du mode sera implémentée plus tard
+    // Note: Si la découverte échoue, l'application continue en mode standalone
     console.log('Démarrage du service de découverte réseau...');
-    startDiscovery(localServerPort);
+    try {
+      startDiscovery(localServerPort);
+    } catch (error) {
+      console.warn('Le service de découverte réseau n\'a pas pu démarrer, mais l\'application continue:', error);
+    }
 
     // 6. Initialiser le système de mise à jour
     console.log('Initialisation du système de mise à jour...');

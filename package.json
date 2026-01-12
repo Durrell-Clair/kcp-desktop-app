@@ -8,6 +8,9 @@
     "dev": "tsc && npm run copy-migrations && cross-env NODE_ENV=development electron .",
     "build": "npm run compile && electron-builder",
     "build:win": "npm run build -- --win",
+    "build:win:local": "npm run compile && electron-builder --win --publish never",
+    "build:win:unsigned": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false npm run compile && electron-builder --win --publish never",
+    "release:github": "python scripts/create-release-github.py",
     "start": "electron .",
     "compile": "tsc && npm run copy-migrations",
     "copy-migrations": "node scripts/copy-migrations.js",
@@ -52,6 +55,8 @@
     },
     "files": [
       "dist/**/*",
+      "renderer/**/*",
+      "build/**/*",
       "package.json"
     ],
     "win": {

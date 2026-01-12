@@ -16,17 +16,47 @@ export function startDiscovery(port: number, serviceName: string = 'KAMER KASH P
   try {
     bonjourInstance = bonjour();
 
-    // Publier le service
-    service = bonjourInstance.publish({
-      name: serviceName,
-      type: 'http',
-      port: port,
-      protocol: 'tcp',
-    });
+    // Générer un nom de service unique pour éviter les conflits
+    // Ajouter un identifiant unique basé sur le PID et le timestamp
+    const uniqueId = `${process.pid}-${Date.now().toString(36)}`;
+    const uniqueServiceName = `${serviceName} (${uniqueId.substring(0, 8)})`;
 
-    console.log(`Service de découverte démarré: ${serviceName} sur le port ${port}`);
-  } catch (error) {
+    // Publier le service avec gestion d'erreur
+    try {
+      service = bonjourInstance.publish({
+        name: uniqueServiceName,
+        type: 'http',
+        port: port,
+        protocol: 'tcp',
+      });
+
+      console.log(`Service de découverte démarré: ${uniqueServiceName} sur le port ${port}`);
+    } catch (publishError: any) {
+      // Si le nom est déjà utilisé, essayer avec un nom encore plus unique
+      if (publishError.message && publishError.message.includes('already in use')) {
+        console.warn('Nom de service déjà utilisé, tentative avec un nom plus unique...');
+        const fallbackName = `${serviceName} ${Math.random().toString(36).substring(2, 9)}`;
+        try {
+          service = bonjourInstance.publish({
+            name: fallbackName,
+            type: 'http',
+            port: port,
+            protocol: 'tcp',
+          });
+          console.log(`Service de découverte démarré (fallback): ${fallbackName} sur le port ${port}`);
+        } catch (fallbackError) {
+          console.error('Impossible de publier le service de découverte même avec un nom unique:', fallbackError);
+          // Ne pas faire échouer l'application, juste logger l'erreur
+        }
+      } else {
+        throw publishError;
+      }
+    }
+  } catch (error: any) {
     console.error('Erreur lors du démarrage du service de découverte:', error);
+    // Ne pas faire échouer l'application si la découverte réseau échoue
+    // L'application peut fonctionner sans découverte réseau (mode standalone)
+    console.warn('L\'application continuera sans découverte réseau. Mode standalone activé.');
   }
 }
 

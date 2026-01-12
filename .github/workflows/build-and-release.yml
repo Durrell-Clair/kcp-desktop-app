@@ -1,0 +1,112 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # Déclenche sur les tags de version (ex: v1.0.0)
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+        include:
+          - os: windows-latest
+            platform: win
+            artifact: '*.exe'
+          - os: ubuntu-latest
+            platform: linux
+            artifact: '*.AppImage,*.deb'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile TypeScript
+        run: npm run compile
+
+      - name: Build application
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ matrix.platform }}" == "win" ]; then
+            npm run build -- --win --publish never
+          else
+            npm run build -- --linux --publish never
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}-build
+          path: dist/${{ matrix.artifact }}
+          retention-days: 30
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: win-build
+          path: dist/win
+
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-build
+          path: dist/linux
+
+      - name: Get version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.get_version.outputs.VERSION }}
+          name: Release ${{ steps.get_version.outputs.VERSION }}
+          body: |
+            ## 🎉 Release ${{ steps.get_version.outputs.VERSION }}
+
+            ### 📦 Téléchargements
+
+            **Windows:**
+            - Installateur NSIS (.exe)
+
+            **Linux:**
+            - AppImage
+            - Debian Package (.deb)
+
+            ### 📝 Notes de version
+
+            Consultez les [notes de version](https://github.com/Durrell-Clair/kcp-desktop-app/releases) pour plus de détails.
+
+            ### 🔄 Installation
+
+            Téléchargez le fichier correspondant à votre système d'exploitation et suivez les instructions d'installation.
+          files: |
+            dist/win/*.exe
+            dist/linux/*.AppImage
+            dist/linux/*.deb
+          draft: false
+          prerelease: ${{ contains(steps.get_version.outputs.VERSION, '-') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

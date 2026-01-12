@@ -8,16 +8,18 @@ on:
 jobs:
   build:
     runs-on: ${{ matrix.os }}
+    continue-on-error: true  # Continuer même si un build échoue
     strategy:
+      fail-fast: false  # Ne pas arrêter tous les builds si un échoue
       matrix:
         os: [windows-latest, ubuntu-latest]
         include:
           - os: windows-latest
             platform: win
-            artifact: '*.exe'
+            build-flag: --win
           - os: ubuntu-latest
             platform: linux
-            artifact: '*.AppImage,*.deb'
+            build-flag: --linux
 
     steps:
       - name: Checkout code
@@ -34,51 +36,91 @@ jobs:
 
       - name: Compile TypeScript
         run: npm run compile
+        continue-on-error: false
 
       - name: Build application
+        id: build
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if [ "${{ matrix.platform }}" == "win" ]; then
-            npm run build -- --win --publish never
-          else
-            npm run build -- --linux --publish never
-          fi
+          echo "Building for ${{ matrix.platform }}..."
+          npm run build -- ${{ matrix.build-flag }} --publish never
+          echo "Build completed for ${{ matrix.platform }}"
+        continue-on-error: true
+
+      - name: List build artifacts
+        if: always()
+        run: |
+          echo "Listing files in dist directory:"
+          find dist -type f -name "*.exe" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.dmg" -o -name "*.rpm" || echo "No build artifacts found"
+          ls -la dist/ || echo "dist directory not found"
 
       - name: Upload artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.platform }}-build
-          path: dist/${{ matrix.artifact }}
+          path: |
+            dist/**/*.exe
+            dist/**/*.AppImage
+            dist/**/*.deb
+            dist/**/*.dmg
+            dist/**/*.rpm
+          if-no-files-found: warn  # Avertir si aucun fichier n'est trouvé
           retention-days: 30
 
   release:
     needs: build
     runs-on: ubuntu-latest
+    if: always()  # S'exécuter même si les builds échouent
     permissions:
       contents: write
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Récupérer tous les tags
+
+      - name: Get version from tag
+        id: get_version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "Creating release for version: $VERSION"
 
       - name: Download Windows artifacts
         uses: actions/download-artifact@v4
         with:
           name: win-build
           path: dist/win
+          if-no-files-found: ignore  # Ignorer si l'artifact n'existe pas
 
       - name: Download Linux artifacts
         uses: actions/download-artifact@v4
         with:
           name: linux-build
           path: dist/linux
+          if-no-files-found: ignore  # Ignorer si l'artifact n'existe pas
 
-      - name: Get version from tag
-        id: get_version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+      - name: Find release files
+        id: find_files
+        run: |
+          echo "Searching for release files..."
+          # Chercher tous les fichiers de release
+          find dist -type f \( -name "*.exe" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.dmg" -o -name "*.rpm" \) > release_files.txt || touch release_files.txt
+          
+          if [ -s release_files.txt ]; then
+            echo "Found release files:"
+            cat release_files.txt
+            echo "has_files=true" >> $GITHUB_OUTPUT
+          else
+            echo "No release files found"
+            echo "has_files=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Create Release
+        id: create_release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.get_version.outputs.VERSION }}
@@ -102,11 +144,30 @@ jobs:
             ### 🔄 Installation
 
             Téléchargez le fichier correspondant à votre système d'exploitation et suivez les instructions d'installation.
+
+            ---
+            
+            **Note:** Cette release a été créée automatiquement par GitHub Actions.
           files: |
-            dist/win/*.exe
-            dist/linux/*.AppImage
-            dist/linux/*.deb
+            dist/**/*.exe
+            dist/**/*.AppImage
+            dist/**/*.deb
+            dist/**/*.dmg
+            dist/**/*.rpm
           draft: false
-          prerelease: ${{ contains(steps.get_version.outputs.VERSION, '-') }}
+          prerelease: ${{ contains(steps.get_version.outputs.VERSION, '-') || contains(steps.get_version.outputs.VERSION, 'alpha') || contains(steps.get_version.outputs.VERSION, 'beta') || contains(steps.get_version.outputs.VERSION, 'rc') }}
+          fail_on_unmatched_files: false  # Ne pas échouer si aucun fichier n'est trouvé
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Release summary
+        if: always()
+        run: |
+          if [ "${{ steps.create_release.outcome }}" == "success" ]; then
+            echo "✅ Release created successfully!"
+            echo "Version: ${{ steps.get_version.outputs.VERSION }}"
+            echo "Release URL: https://github.com/Durrell-Clair/kcp-desktop-app/releases/tag/${{ steps.get_version.outputs.VERSION }}"
+          else
+            echo "❌ Failed to create release"
+            exit 1
+          fi

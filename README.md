@@ -146,19 +146,45 @@ npm run build
 
 ## 📦 Créer une release GitHub
 
-### 1. Préparer la release
+### Méthode rapide (avec script helper)
 
-1. Mettre à jour la version dans `package.json`
-2. Créer un tag Git :
+**Windows (PowerShell)** :
+```powershell
+.\scripts\create-release.ps1 -Version "1.0.1" -Message "Description de la release"
+```
+
+**Linux/Mac (Bash)** :
+```bash
+chmod +x scripts/create-release.sh
+./scripts/create-release.sh 1.0.1 "Description de la release"
+```
+
+Le script va :
+- Valider le format de version
+- Créer le tag Git
+- Pousser le tag vers GitHub
+- Déclencher automatiquement le workflow GitHub Actions
+
+### Méthode manuelle
+
+1. **Mettre à jour la version** dans `package.json` (optionnel, pour référence)
+2. **Créer un tag Git** :
 
 ```bash
 git tag -a v1.0.0 -m "Release version 1.0.0"
 git push origin v1.0.0
 ```
 
-### 2. Build et publication automatique
+### Build et publication automatique
 
-Si vous avez configuré GitHub Actions (voir section CI/CD), la release sera créée automatiquement lors du push du tag.
+Le workflow GitHub Actions se déclenche automatiquement lors du push d'un tag au format `v*.*.*` (ex: `v1.0.0`, `v1.2.3`).
+
+Le workflow va :
+1. Builder l'application pour Windows et Linux (en parallèle)
+2. Créer la release GitHub automatiquement
+3. Uploader les fichiers buildés (.exe, .AppImage, .deb, etc.)
+
+**Suivre la progression** : https://github.com/Durrell-Clair/kcp-desktop-app/actions
 
 ### 3. Publication manuelle
 

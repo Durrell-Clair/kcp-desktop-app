@@ -50,28 +50,70 @@ if [ -n "$(git status --porcelain)" ]; then
     fi
 fi
 
-# Vérifier que le tag n'existe pas déjà
+# Vérifier que le tag n'existe pas déjà (localement)
+EXISTING_TAG_LOCAL=false
+EXISTING_TAG_REMOTE=false
+
 if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
-    echo "❌ Le tag $TAG_NAME existe déjà"
+    EXISTING_TAG_LOCAL=true
+fi
+
+# Vérifier si le tag existe sur le remote
+if git ls-remote --tags origin | grep -q "refs/tags/$TAG_NAME"; then
+    EXISTING_TAG_REMOTE=true
+fi
+
+if [ "$EXISTING_TAG_LOCAL" = true ] || [ "$EXISTING_TAG_REMOTE" = true ]; then
+    echo "⚠️  Le tag $TAG_NAME existe déjà"
+    if [ "$EXISTING_TAG_LOCAL" = true ]; then
+        echo "   - Tag local détecté"
+    fi
+    if [ "$EXISTING_TAG_REMOTE" = true ]; then
+        echo "   - Tag distant détecté"
+    fi
     read -p "Voulez-vous le supprimer et le recréer? (y/N) " -n 1 -r
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-        echo "Suppression du tag local..."
-        git tag -d "$TAG_NAME" || true
-        echo "Suppression du tag distant..."
-        git push origin ":refs/tags/$TAG_NAME" || true
+        # Supprimer le tag local s'il existe
+        if [ "$EXISTING_TAG_LOCAL" = true ]; then
+            echo "🗑️  Suppression du tag local..."
+            git tag -d "$TAG_NAME" 2>/dev/null && echo "   ✅ Tag local supprimé" || true
+        fi
+        
+        # Supprimer le tag distant s'il existe
+        if [ "$EXISTING_TAG_REMOTE" = true ]; then
+            echo "🗑️  Suppression du tag distant..."
+            if git push origin ":refs/tags/$TAG_NAME" 2>/dev/null; then
+                echo "   ✅ Tag distant supprimé"
+            else
+                echo "   ⚠️  Le tag distant n'a peut-être pas été supprimé (peut être normal si la release existe)"
+            fi
+        fi
+        
+        echo ""
+        echo "💡 Note: Si une release GitHub existe pour ce tag, vous devrez la supprimer manuellement depuis:"
+        echo "   https://github.com/Durrell-Clair/kcp-desktop-app/releases"
+        echo ""
     else
         echo "❌ Annulé"
         exit 1
     fi
 fi
 
+# Vérifier qu'on est sur un commit valide
+CURRENT_COMMIT=$(git rev-parse HEAD 2>/dev/null)
+if [ -z "$CURRENT_COMMIT" ]; then
+    echo "❌ Erreur: Impossible de déterminer le commit actuel"
+    exit 1
+fi
+
 # Créer le tag
-echo "📝 Création du tag $TAG_NAME..."
+echo "📝 Création du tag $TAG_NAME sur le commit ${CURRENT_COMMIT:0:7}..."
 git tag -a "$TAG_NAME" -m "$MESSAGE"
 
 if [ $? -ne 0 ]; then
     echo "❌ Erreur lors de la création du tag"
+    echo "💡 Vérifiez que vous êtes sur une branche valide avec des commits"
     exit 1
 fi
 

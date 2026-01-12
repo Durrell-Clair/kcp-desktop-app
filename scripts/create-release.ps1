@@ -45,28 +45,70 @@ if ($status) {
     }
 }
 
-# Vérifier que le tag n'existe pas déjà
-$existingTag = git tag -l $TagName
-if ($existingTag) {
-    Write-Host "❌ Le tag $TagName existe déjà" -ForegroundColor Red
+# Vérifier que le tag n'existe pas déjà (localement)
+$existingTagLocal = git tag -l $TagName
+$existingTagRemote = $null
+
+# Vérifier si le tag existe sur le remote
+$remoteTags = git ls-remote --tags origin 2>$null
+if ($remoteTags -match "refs/tags/$TagName") {
+    $existingTagRemote = $true
+}
+
+if ($existingTagLocal -or $existingTagRemote) {
+    Write-Host "⚠️  Le tag $TagName existe déjà" -ForegroundColor Yellow
+    if ($existingTagLocal) {
+        Write-Host "   - Tag local détecté" -ForegroundColor Gray
+    }
+    if ($existingTagRemote) {
+        Write-Host "   - Tag distant détecté" -ForegroundColor Gray
+    }
     $response = Read-Host "Voulez-vous le supprimer et le recréer? (y/N)"
     if ($response -eq 'y' -or $response -eq 'Y') {
-        Write-Host "Suppression du tag local..." -ForegroundColor Yellow
-        git tag -d $TagName
-        Write-Host "Suppression du tag distant..." -ForegroundColor Yellow
-        git push origin :refs/tags/$TagName
+        # Supprimer le tag local s'il existe
+        if ($existingTagLocal) {
+            Write-Host "🗑️  Suppression du tag local..." -ForegroundColor Yellow
+            git tag -d $TagName 2>$null
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host "   ✅ Tag local supprimé" -ForegroundColor Green
+            }
+        }
+        
+        # Supprimer le tag distant s'il existe
+        if ($existingTagRemote) {
+            Write-Host "🗑️  Suppression du tag distant..." -ForegroundColor Yellow
+            git push origin :refs/tags/$TagName 2>$null
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host "   ✅ Tag distant supprimé" -ForegroundColor Green
+            } else {
+                Write-Host "   ⚠️  Le tag distant n'a peut-être pas été supprimé (peut être normal si la release existe)" -ForegroundColor Yellow
+            }
+        }
+        
+        Write-Host ""
+        Write-Host "💡 Note: Si une release GitHub existe pour ce tag, vous devrez la supprimer manuellement depuis:" -ForegroundColor Cyan
+        Write-Host "   https://github.com/Durrell-Clair/kcp-desktop-app/releases" -ForegroundColor Blue
+        Write-Host ""
     } else {
         Write-Host "❌ Annulé" -ForegroundColor Red
         exit 1
     }
 }
 
+# Vérifier qu'on est sur un commit valide
+$currentCommit = git rev-parse HEAD 2>$null
+if (-not $currentCommit) {
+    Write-Host "❌ Erreur: Impossible de déterminer le commit actuel" -ForegroundColor Red
+    exit 1
+}
+
 # Créer le tag
-Write-Host "📝 Création du tag $TagName..." -ForegroundColor Cyan
+Write-Host "📝 Création du tag $TagName sur le commit $($currentCommit.Substring(0,7))..." -ForegroundColor Cyan
 git tag -a $TagName -m $Message
 
 if ($LASTEXITCODE -ne 0) {
     Write-Host "❌ Erreur lors de la création du tag" -ForegroundColor Red
+    Write-Host "💡 Vérifiez que vous êtes sur une branche valide avec des commits" -ForegroundColor Yellow
     exit 1
 }
 

@@ -138,5 +138,6 @@ Write-Host "📊 Suivez la progression ici:" -ForegroundColor Cyan
 Write-Host "   https://github.com/Durrell-Clair/kcp-desktop-app/actions" -ForegroundColor Blue
 Write-Host ""
 Write-Host "📦 La release sera disponible ici:" -ForegroundColor Cyan
-Write-Host "   https://github.com/Durrell-Clair/kcp-desktop-app/releases/tag/$TagName" -ForegroundColor Blue
+$releaseUrl = "https://github.com/Durrell-Clair/kcp-desktop-app/releases/tag/" + $TagName
+Write-Host ('   ' + $releaseUrl) -ForegroundColor Blue
 Write-Host ""

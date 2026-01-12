@@ -2,7 +2,29 @@
 
 ## Création automatique (recommandé)
 
-### Avec GitHub Actions
+### Mode automatique : Push vers main
+
+**Le workflow se déclenche automatiquement à chaque push vers la branche `main`** :
+
+1. **Faire un commit et pousser vers main** :
+   ```bash
+   git add .
+   git commit -m "Vos modifications"
+   git push origin main
+   ```
+
+2. **Le workflow GitHub Actions va automatiquement** :
+   - Générer un numéro de version basé sur la date/heure (format: `vYYYY.MM.DD.HHmm`)
+   - Créer un tag Git avec cette version
+   - Builder l'application pour Windows et Linux (en parallèle)
+   - Créer une release GitHub avec cette version
+   - Uploader les fichiers buildés (.exe, .AppImage, .deb, etc.)
+
+**Exemple de version générée** : `v2026.01.12.1430` (12 janvier 2026 à 14h30)
+
+### Mode manuel : Push de tag
+
+Si vous voulez créer une release avec une version spécifique :
 
 1. **Créer un tag de version** :
    ```bash
@@ -12,7 +34,7 @@
 
 2. **Le workflow GitHub Actions va automatiquement** :
    - Builder l'application pour Windows et Linux (en parallèle)
-   - Créer une release GitHub
+   - Créer une release GitHub avec la version du tag
    - Uploader les fichiers buildés (.exe, .AppImage, .deb, etc.)
 
 3. **Vérifier le statut du workflow** :
@@ -20,11 +42,13 @@
    **Étape 1 : Vérifier que le workflow s'est déclenché**
    - Allez sur https://github.com/Durrell-Clair/kcp-desktop-app/actions
    - Vous devriez voir un nouveau workflow "Build and Release" en cours d'exécution
-   - Le workflow se déclenche automatiquement quelques secondes après le push du tag
+   - **Mode automatique** : Le workflow se déclenche automatiquement quelques secondes après le push vers `main`
+   - **Mode manuel** : Le workflow se déclenche automatiquement quelques secondes après le push du tag
    
    **Étape 2 : Surveiller l'exécution**
    - Cliquez sur le workflow en cours pour voir les détails
-   - Vous verrez deux jobs : `build` (Windows et Linux) et `release`
+   - **Mode automatique** : Vous verrez trois jobs : `generate-version` (génère la version), `build` (Windows et Linux), et `release`
+   - **Mode manuel** : Vous verrez deux jobs : `build` (Windows et Linux) et `release`
    - Les builds s'exécutent en parallèle pour gagner du temps
    
    **Étape 3 : Vérifier le résultat**
@@ -41,7 +65,7 @@
    - Allez sur https://www.kamer-cash-pme.com/admin/downloads
    - La release devrait apparaître dans la liste (peut prendre quelques minutes)
 
-## Création manuelle
+## Création manuelle (sans workflow)
 
 Si le workflow GitHub Actions ne fonctionne pas ou si vous voulez créer une release sans build :
 
@@ -94,27 +118,45 @@ Après avoir créé une release :
 3. Allez sur le site officiel : https://www.kamer-cash-pme.com/admin/downloads
 4. La release devrait apparaître dans la liste
 
+## Système de versionnement automatique
+
+Lors d'un push vers `main`, le workflow génère automatiquement un numéro de version basé sur la date et l'heure :
+
+- **Format** : `vYYYY.MM.DD.HHmm`
+- **Exemple** : `v2026.01.12.1430` (12 janvier 2026 à 14h30)
+
+**Avantages** :
+- ✅ Version unique garantie (basée sur la date/heure)
+- ✅ Ordre chronologique naturel
+- ✅ Facile à lire et comprendre
+- ✅ Pas de conflit possible
+
+**Note** : Si un tag avec la même version existe déjà (très rare), le workflow incrémente automatiquement avec un suffixe (ex: `v2026.01.12.1430.1`).
+
 ## Dépannage
 
 ### Le workflow ne se déclenche pas
 
-**Symptômes** : Aucun workflow n'apparaît dans l'onglet "Actions" après avoir poussé un tag.
+**Symptômes** : Aucun workflow n'apparaît dans l'onglet "Actions" après avoir poussé vers `main` ou un tag.
 
 **Solutions** :
 1. **Vérifier que GitHub Actions est activé** :
    - Allez sur Settings → Actions → General
    - Vérifiez que "Allow all actions and reusable workflows" est sélectionné
    
-2. **Vérifier que le tag a bien été poussé** :
-   ```bash
-   git ls-remote --tags origin
-   ```
-   Vous devriez voir votre tag dans la liste.
+2. **Pour le mode automatique (push vers main)** :
+   - Vérifiez que vous avez bien poussé vers la branche `main` (pas `master` ou une autre branche)
+   - Vérifiez que le workflow est présent dans le repository
    
-3. **Vérifier le format du tag** :
-   - Le workflow se déclenche uniquement pour les tags au format `v*.*.*`
-   - Exemples valides : `v1.0.0`, `v1.2.3`, `v2.0.0-beta.1`
-   - Exemples invalides : `1.0.0`, `release-1.0.0`
+3. **Pour le mode manuel (push de tag)** :
+   - Vérifiez que le tag a bien été poussé :
+     ```bash
+     git ls-remote --tags origin
+     ```
+   - Vérifiez le format du tag :
+     - Le workflow se déclenche uniquement pour les tags au format `v*.*.*`
+     - Exemples valides : `v1.0.0`, `v1.2.3`, `v2.0.0-beta.1`
+     - Exemples invalides : `1.0.0`, `release-1.0.0`
    
 4. **Vérifier que le workflow est dans le repository** :
    - Le fichier `.github/workflows/build-and-release.yml` doit être présent
@@ -195,6 +237,7 @@ Après avoir créé une release :
 ### Le workflow prend trop de temps
 
 **Temps d'exécution normal** :
+- Génération de version (mode auto) : ~10 secondes
 - Build Windows : ~10-15 minutes
 - Build Linux : ~5-10 minutes
 - Création de release : ~1-2 minutes
@@ -204,3 +247,28 @@ Si le workflow prend plus de temps, vérifiez :
 - Les logs pour identifier les étapes lentes
 - La charge des runners GitHub (peut varier selon l'heure)
 - Les erreurs qui causent des retries
+
+## Désactiver les releases automatiques
+
+Si vous ne voulez pas créer de release automatiquement à chaque push vers `main`, vous avez plusieurs options :
+
+### Option 1 : Modifier le workflow
+
+Éditez `.github/workflows/build-and-release.yml` et supprimez ou commentez la section `branches: [main]` :
+
+```yaml
+on:
+  push:
+    # branches:
+    #   - main  # Commenté pour désactiver les releases automatiques
+    tags:
+      - 'v*.*.*'  # Les releases manuelles avec tags continuent de fonctionner
+```
+
+### Option 2 : Utiliser un commit message spécial
+
+Vous pouvez modifier le workflow pour qu'il ne se déclenche que si le message de commit contient `[release]` ou un autre mot-clé.
+
+### Option 3 : Utiliser une branche différente
+
+Ne poussez vers `main` que lorsque vous voulez créer une release. Utilisez une branche de développement pour les commits quotidiens.

@@ -2,11 +2,63 @@ name: Build and Release
 
 on:
   push:
+    branches:
+      - main  # Déclenche sur push vers main
     tags:
-      - 'v*.*.*'  # Déclenche sur les tags de version (ex: v1.0.0)
+      - 'v*.*.*'  # Déclenche aussi sur les tags de version (ex: v1.0.0)
 
 jobs:
+  # Job pour générer la version et créer le tag (uniquement pour push vers main)
+  generate-version:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.generate_version.outputs.version }}
+      tag_name: ${{ steps.generate_version.outputs.tag_name }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate version from date
+        id: generate_version
+        run: |
+          # Générer une version basée sur la date et l'heure
+          # Format: vYYYY.MM.DD.HHmm
+          VERSION=$(date +'%Y.%m.%d.%H%M')
+          TAG_NAME="v$VERSION"
+          
+          # Vérifier si le tag existe déjà (peu probable mais possible)
+          COUNTER=0
+          while git rev-parse "$TAG_NAME" >/dev/null 2>&1; do
+            COUNTER=$((COUNTER + 1))
+            VERSION=$(date +'%Y.%m.%d.%H%M')".$COUNTER"
+            TAG_NAME="v$VERSION"
+          done
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+          echo "Generated version: $TAG_NAME"
+
+      - name: Create and push tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ steps.generate_version.outputs.tag_name }}" -m "Auto-release: ${{ steps.generate_version.outputs.tag_name }}"
+          git push origin "${{ steps.generate_version.outputs.tag_name }}"
+
   build:
+    # S'exécuter après generate-version (qui peut être skipped pour les tags)
+    needs: [generate-version]
+    if: |
+      always() && (
+        (github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.generate-version.result == 'success') ||
+        (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/'))
+      )
     runs-on: ${{ matrix.os }}
     continue-on-error: true  # Continuer même si un build échoue
     strategy:
@@ -70,9 +122,9 @@ jobs:
           retention-days: 30
 
   release:
-    needs: build
+    needs: [generate-version, build]
     runs-on: ubuntu-latest
-    if: always()  # S'exécuter même si les builds échouent
+    if: always() && needs.build.result != 'cancelled' && needs.build.result != 'skipped'  # S'exécuter même si les builds échouent
     permissions:
       contents: write
 
@@ -82,10 +134,27 @@ jobs:
         with:
           fetch-depth: 0  # Récupérer tous les tags
 
-      - name: Get version from tag
+      - name: Get version from tag or generated version
         id: get_version
         run: |
-          VERSION=${GITHUB_REF#refs/tags/}
+          if [ "${{ github.event_name }}" == "push" ] && [ "${{ github.ref }}" == "refs/heads/main" ]; then
+            # Version générée automatiquement (pour push vers main)
+            if [ -n "${{ needs.generate-version.outputs.tag_name }}" ]; then
+              VERSION="${{ needs.generate-version.outputs.tag_name }}"
+            else
+              # Fallback: générer depuis la date
+              VERSION="v$(date +'%Y.%m.%d.%H%M')"
+            fi
+          else
+            # Version depuis le tag poussé
+            VERSION=${GITHUB_REF#refs/tags/}
+          fi
+          
+          # Si VERSION est vide, essayer de le récupérer depuis le contexte
+          if [ -z "$VERSION" ]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+          fi
+          
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
           echo "Creating release for version: $VERSION"
 
